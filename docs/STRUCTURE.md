@@ -20,38 +20,16 @@ Stage sequencing and completion criteria are defined in [stages/README.md](stage
 |   |-- workflows/
 |   |   `-- ci.yml
 |
-|-- .agents/
-|   |-- common-agent.md
-|   |-- planner-agent.md
-|   |-- executor-agent.md
-|   |-- test-agent.md
-|   |-- code-agent.md
-|   |-- verifier-agent.md
-|   |-- executor-policy.json
-|   |-- execution-matrix.yaml
-|   `-- execution-state.json
-|
 |-- README.md
 |-- .env
 |-- .env.example
 |-- .gitignore
 |-- .dockerignore
 |-- docker-compose.yml
-|-- scripts/
-|   |-- api_start.py
-|   |-- api_proxy.py
-|   `-- agent_runner/
-|       |-- run_stage_agents.py
-|       |-- runner.py
-|       |-- planner.py
-|       |-- executor.py
-|       |-- state.py
-|       `-- ...
 |
 |-- docs/
 |   |-- ARCHITECTURE.md
 |   |-- CONTRACTS.md
-|   |-- EXECUTION-STATUS.md
 |   |-- INTEGRATIONS.md
 |   |-- PLAN.md
 |   |-- SCALING.md
@@ -97,12 +75,10 @@ Stage sequencing and completion criteria are defined in [stages/README.md](stage
 ### Root
 
 - `.github/` shall contain GitHub workflow files.
-- `.agents/` shall contain API launcher execution rules, role files, and execution state.
 - `README.md` shall contain local startup instructions.
 - `.env` may exist as a local runtime file and shall remain git-ignored.
 - `.env.example` shall define required runtime configuration keys.
 - `docker-compose.yml` shall start the backend and database for local development.
-- `scripts/` may contain local repository utilities, OpenAI smoke scripts, and agent runner modules.
 - `docs/` shall contain project documentation only.
 
 ### Documentation
@@ -110,7 +86,6 @@ Stage sequencing and completion criteria are defined in [stages/README.md](stage
 - [PLAN.md](PLAN.md) is the implementation plan and document index.
 - [ARCHITECTURE.md](ARCHITECTURE.md) defines system structure and runtime flow.
 - [CONTRACTS.md](CONTRACTS.md) defines lifecycle, object, and analysis contracts.
-- [EXECUTION-STATUS.md](EXECUTION-STATUS.md) is a generated user-facing view of `.agents/execution-state.json`.
 - [INTEGRATIONS.md](INTEGRATIONS.md) defines external integration boundaries and interface contracts.
 - [SCALING.md](SCALING.md) defines MVP scaling boundaries and the post-MVP evolution path.
 - [STRUCTURE.md](STRUCTURE.md) defines repository layout and directory responsibilities.
@@ -125,8 +100,6 @@ Stage sequencing and completion criteria are defined in [stages/README.md](stage
 
 ### Application
 
-- `scripts/api_start.py` may be used as a direct OpenAI smoke script without proxy.
-- `scripts/api_proxy.py` may be used as a local OpenAI proxy smoke script outside the main FastAPI runtime.
 - `apps/app-api/src/api/` shall contain HTTP routes, request schemas, and API dependencies.
 - `apps/app-api/src/application/` shall contain use cases, orchestration logic, and application services.
 - `apps/app-api/src/domain/` shall contain domain entities, interfaces, enums, and business rules.
