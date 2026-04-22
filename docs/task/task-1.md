@@ -12,14 +12,16 @@
 - Estimate: 1-2h
 - Goal: Represent the core call record in the persistence layer and store lifecycle state in the database.
 - Do:
-  - Add or confirm the `CallSession` persistence model with `id`, `external_call_id`, `processing_status`, `audio_storage_key`, `source_type`, `metadata`, and timestamps.
-  - Ensure `processing_status` is part of the persisted model and uses the lifecycle value set defined in `CONTRACTS.md`.
+  - Add or confirm a real mapped SQLAlchemy `CallSession` persistence model under [apps/app-api/src](/C:/IT/project/hr-resume/ai-call-qa-sales/apps/app-api/src).
+  - Keep `CallSession` as a persistence model, not only a dataclass or plain Python class.
+  - Include persisted fields `id`, `external_call_id`, `processing_status`, `audio_storage_key`, `source_type`, `metadata`, `created_at`, and `updated_at`.
+  - Constrain `processing_status` to exactly `created`, `uploaded`, `transcribed`, `analyzed`, `exported`, and `failed` as defined in `CONTRACTS.md`.
   - Keep the work limited to persistence structure; do not add upload, STT, RAG, or analysis behavior.
 - Result:
   - A persisted `CallSession` model exists and includes stored lifecycle status plus the fields needed for later audio attachment.
 - Verification:
   - The persistence definition includes every `CallSession` field named in `CONTRACTS.md`.
-  - `processing_status` is stored as a database-backed field on `CallSession`.
+  - `processing_status` is stored as a database-backed field on `CallSession` and is constrained to the allowed lifecycle values.
 - Depends on:
   - None.
 
@@ -59,7 +61,7 @@
 - Estimate: 1-2h
 - Goal: Persist analysis result storage fields while keeping review state separate from `CallSession.processing_status`.
 - Do:
-  - Add or confirm the `CallAnalysis` persistence model with `call_id`, `result_json`, `confidence`, `review_required`, `review_reasons`, `model_name`, `prompt_version`, and timestamps.
+  - Add or confirm the `CallAnalysis` persistence model with `call_id`, `result_json`, `confidence`, `review_required`, `review_reasons`, `model_name`, `prompt_version`, `created_at`, and `updated_at`.
   - Link `CallAnalysis.call_id` to `CallSession`.
   - Store `review_required` and `review_reasons` on `CallAnalysis`, not as lifecycle status on `CallSession`.
   - Do not implement any analysis execution, retry logic, or scoring behavior.
@@ -147,7 +149,6 @@
 
 ## Risks / Ambiguities
 - `KnowledgeDocument` is named in `CONTRACTS.md` but no explicit field list is provided there; Stage 1 work should keep this entity minimal and avoid inventing extra document metadata.
-- The source documents require storing lifecycle status values but do not specify whether enforcement must occur at the database level, application level, or both.
 - The source documents do not specify whether migrations must be one baseline file or multiple files, only that they must be sufficient to create the current schema.
 - If T8 finds failed checks, they must be decomposed into separate correction tasks rather than expanding T8 beyond verification.
 

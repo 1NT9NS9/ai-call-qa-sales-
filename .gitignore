@@ -35,3 +35,11 @@ data/kb_seed/*
 !data/kb_seed/.gitkeep
 pytest-cache-files-*
 .docker-config/
+apps/app-api/.tmp-stage1-t7/
+apps/app-api/.tmp-stage1-t7-*/
+apps/app-api/.tmp-stage1-t8/
+apps/app-api/.tmp-stage1-t8-*/
+apps/app-api/stage1-t7-*/
+apps/app-api/sqlite-check-*/
+apps/app-api/sqlite-manual.db
+apps/app-api/sqlite-nested-test/

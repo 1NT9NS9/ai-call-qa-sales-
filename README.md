@@ -37,10 +37,12 @@ Check these points before publishing the repository:
 - `storage/audio/`, `data/demo/`, and local cache folders are not staged
 - fast local checks pass:
 
+Use `-p no:cacheprovider` for local `pytest` commands in this workspace to avoid Windows cache permission warnings.
+
 ```powershell
-python -m ruff check apps/app-api/src apps/app-api/tests
-python -m mypy --python-version 3.12 --ignore-missing-imports apps/app-api/src
-python -m pytest apps/app-api/tests -q
+python -m ruff check apps/app-api/src apps/app-api/tests --no-cache
+python -m mypy --python-version 3.12 --ignore-missing-imports apps/app-api/src --no-incremental --cache-dir=nul
+python -m pytest apps/app-api/tests -q -p no:cacheprovider
 ```
 
 - if you changed bootstrap, Docker, Compose, or environment files, also run:

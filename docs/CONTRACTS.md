@@ -24,11 +24,11 @@ Security handling for contract data is defined in [SECURITY.md](SECURITY.md).
 
 ## Persisted Objects
 
-- `CallSession`: `id`, `external_call_id`, `processing_status`, `audio_storage_key`, `source_type`, `metadata`, timestamps
+- `CallSession`: `id`, `external_call_id`, `processing_status`, `audio_storage_key`, `source_type`, `metadata`, `created_at`, `updated_at`
 - `TranscriptSegment`: `id`, `call_id`, `speaker`, `text`, `start_ms`, `end_ms`, `sequence_no`
 - `KnowledgeDocument`: original knowledge-base document record
 - `KnowledgeChunk`: `id`, `document_id`, `chunk_text`, `embedding`, `chunk_index`
-- `CallAnalysis`: `call_id`, `result_json`, `confidence`, `review_required`, `review_reasons`, `model_name`, `prompt_version`, timestamps
+- `CallAnalysis`: `call_id`, `result_json`, `confidence`, `review_required`, `review_reasons`, `model_name`, `prompt_version`, `created_at`, `updated_at`
 - `DeliveryEvent`: `call_id`, `target_url`, `delivery_status`, `response_code`, `attempt_no`, `error_message`
 
 ## Analysis Result Contract
