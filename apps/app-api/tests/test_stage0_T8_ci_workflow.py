@@ -32,9 +32,11 @@ class Stage0CiWorkflowTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                "docker compose exec -T db psql -U app_user -d app_db "
-                '-tAc "SELECT extname FROM pg_extension '
-                "WHERE extname = 'vector'\" | grep -qx vector"
+                "docker compose exec -T db sh -lc "
+                '"psql -U \\"\\$POSTGRES_USER\\" -d '
+                '\\"\\$POSTGRES_DB\\" -tAc \\"SELECT extname FROM '
+                'pg_extension WHERE extname = \'vector\'\\" | grep -qx '
+                'vector"'
             ),
             workflow_text,
         )
