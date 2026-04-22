@@ -53,9 +53,9 @@ def _get_stage0_value(key: str, dotenv_values: dict[str, str]) -> str:
 def load_settings() -> Settings:
     dotenv_values = _load_dotenv_values()
 
-    resolved_values = {
-        key: _get_stage0_value(key, dotenv_values) for key in REQUIRED_STAGE0_KEYS
-    }
+    resolved_values = {}
+    for key in REQUIRED_STAGE0_KEYS:
+        resolved_values[key] = _get_stage0_value(key, dotenv_values)
 
     return Settings(
         app_env=resolved_values["APP_ENV"],

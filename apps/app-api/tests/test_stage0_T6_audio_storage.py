@@ -27,9 +27,14 @@ class Stage0AudioStorageTests(unittest.TestCase):
         self.assertTrue(STORAGE_AUDIO_PATH.is_dir())
         self.assertTrue((STORAGE_AUDIO_PATH / ".gitkeep").is_file())
 
-    def test_compose_mount_matches_configured_audio_storage_path(self) -> None:
+    def test_compose_mount_matches_configured_audio_storage_path(
+        self,
+    ) -> None:
         env_values = load_env_example()
         compose_text = DOCKER_COMPOSE_PATH.read_text(encoding="utf-8")
 
         self.assertEqual(env_values["STORAGE_AUDIO_DIR"], "/app/storage/audio")
-        self.assertIn("      - ./storage/audio:/app/storage/audio", compose_text)
+        self.assertIn(
+            "      - ./storage/audio:/app/storage/audio",
+            compose_text,
+        )

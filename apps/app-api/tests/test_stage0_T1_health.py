@@ -12,7 +12,10 @@ class HealthEndpointTests(unittest.TestCase):
             "APP_ENV": "test",
             "APP_HOST": "127.0.0.1",
             "APP_PORT": "8000",
-            "DATABASE_URL": "postgresql+psycopg://app_user:app_password@db:5432/app_db",
+            "DATABASE_URL": (
+                "postgresql+psycopg://"
+                "app_user:app_password@db:5432/app_db"
+            ),
             "STORAGE_AUDIO_DIR": "/tmp/audio",
         }
 

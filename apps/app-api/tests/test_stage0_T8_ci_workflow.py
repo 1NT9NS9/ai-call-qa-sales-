@@ -13,18 +13,33 @@ class Stage0CiWorkflowTests(unittest.TestCase):
         self.assertIn("Prepare Stage 0 environment", workflow_text)
         self.assertIn("cp .env.example .env", workflow_text)
         self.assertIn("docker compose config", workflow_text)
+        self.assertIn("set -euxo pipefail", workflow_text)
         self.assertIn("docker compose up --build -d", workflow_text)
+        self.assertIn("for attempt in $(seq 1 30); do", workflow_text)
         self.assertIn(
-            "curl -fsS http://127.0.0.1:8000/health | grep -qx '{\"status\":\"ok\"}'",
+            (
+                "curl -fsS http://127.0.0.1:8000/health | "
+                "grep -qx '{\"status\":\"ok\"}'"
+            ),
             workflow_text,
         )
         self.assertIn(
-            'docker compose exec app-api sh -lc "test -d /app/storage/audio"',
+            (
+                "docker compose exec -T app-api sh -lc "
+                '"test -d /app/storage/audio"'
+            ),
             workflow_text,
         )
         self.assertIn(
-            'docker compose exec db psql -U app_user -d app_db -tAc "SELECT extname FROM pg_extension WHERE extname = \'vector\'" | grep -qx vector',
+            (
+                "docker compose exec -T db psql -U app_user -d app_db "
+                '-tAc "SELECT extname FROM pg_extension '
+                "WHERE extname = 'vector'\" | grep -qx vector"
+            ),
             workflow_text,
         )
+        self.assertIn("Dump Compose state on failure", workflow_text)
+        self.assertIn("docker compose ps", workflow_text)
+        self.assertIn("docker compose logs --no-color", workflow_text)
         self.assertIn("if: always()", workflow_text)
         self.assertIn("docker compose down -v", workflow_text)

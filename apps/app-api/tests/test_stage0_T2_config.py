@@ -46,15 +46,26 @@ class Stage0BootstrapConfigTests(unittest.TestCase):
         self.assertIn("env_file:", compose_text)
         self.assertIn("- .env", compose_text)
         self.assertIn("POSTGRES_DB: ${POSTGRES_DB:-app_db}", compose_text)
-        self.assertIn("POSTGRES_USER: ${POSTGRES_USER:-app_user}", compose_text)
-        self.assertIn("POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}", compose_text)
+        self.assertIn(
+            "POSTGRES_USER: ${POSTGRES_USER:-app_user}",
+            compose_text,
+        )
+        self.assertIn(
+            "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}",
+            compose_text,
+        )
 
-    def test_app_bootstrap_loads_stage0_settings_from_environment(self) -> None:
+    def test_app_bootstrap_loads_stage0_settings_from_environment(
+        self,
+    ) -> None:
         env_values = {
             "APP_ENV": "test",
             "APP_HOST": "127.0.0.1",
             "APP_PORT": "8010",
-            "DATABASE_URL": "postgresql+psycopg://app_user:app_password@db:5432/app_db",
+            "DATABASE_URL": (
+                "postgresql+psycopg://"
+                "app_user:app_password@db:5432/app_db"
+            ),
             "STORAGE_AUDIO_DIR": "/tmp/audio",
         }
 
@@ -70,13 +81,18 @@ class Stage0BootstrapConfigTests(unittest.TestCase):
         )
         self.assertEqual(settings.storage_audio_dir, "/tmp/audio")
 
-    def test_app_bootstrap_loads_stage0_settings_from_repo_root_dotenv(self) -> None:
+    def test_app_bootstrap_loads_stage0_settings_from_repo_root_dotenv(
+        self,
+    ) -> None:
         dotenv_contents = "\n".join(
             (
                 "APP_ENV=local",
                 "APP_HOST=127.0.0.1",
                 "APP_PORT=8000",
-                "DATABASE_URL=postgresql+psycopg://app_user:app_password@db:5432/app_db",
+                (
+                    "DATABASE_URL=postgresql+psycopg://"
+                    "app_user:app_password@db:5432/app_db"
+                ),
                 "STORAGE_AUDIO_DIR=/app/storage/audio",
             )
         )
@@ -92,8 +108,14 @@ class Stage0BootstrapConfigTests(unittest.TestCase):
 
         with patch("src.config.settings.DOTENV_PATH", dotenv_path), patch.dict(
             "os.environ", {}, clear=True
-        ), patch("pathlib.Path.is_file", autospec=True, side_effect=fake_is_file), patch(
-            "pathlib.Path.read_text", autospec=True, side_effect=fake_read_text
+        ), patch(
+            "pathlib.Path.is_file",
+            autospec=True,
+            side_effect=fake_is_file,
+        ), patch(
+            "pathlib.Path.read_text",
+            autospec=True,
+            side_effect=fake_read_text,
         ):
             settings = load_settings()
 
@@ -106,13 +128,18 @@ class Stage0BootstrapConfigTests(unittest.TestCase):
         )
         self.assertEqual(settings.storage_audio_dir, "/app/storage/audio")
 
-    def test_app_bootstrap_does_not_search_arbitrary_parent_dotenv_files(self) -> None:
+    def test_app_bootstrap_does_not_search_arbitrary_parent_dotenv_files(
+        self,
+    ) -> None:
         dotenv_contents = "\n".join(
             (
                 "APP_ENV=wrong",
                 "APP_HOST=127.0.0.1",
                 "APP_PORT=9999",
-                "DATABASE_URL=postgresql+psycopg://wrong:wrong@wrong:5432/wrong",
+                (
+                    "DATABASE_URL=postgresql+psycopg://"
+                    "wrong:wrong@wrong:5432/wrong"
+                ),
                 "STORAGE_AUDIO_DIR=/wrong",
             )
         )
@@ -128,6 +155,12 @@ class Stage0BootstrapConfigTests(unittest.TestCase):
             return dotenv_contents
 
         with patch(
-            "pathlib.Path.is_file", autospec=True, side_effect=fake_is_file
-        ), patch("pathlib.Path.read_text", autospec=True, side_effect=fake_read_text):
+            "pathlib.Path.is_file",
+            autospec=True,
+            side_effect=fake_is_file,
+        ), patch(
+            "pathlib.Path.read_text",
+            autospec=True,
+            side_effect=fake_read_text,
+        ):
             self.assertEqual(_load_dotenv_values(explicit_dotenv_path), {})

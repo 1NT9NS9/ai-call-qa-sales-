@@ -12,8 +12,20 @@ class Stage0DockerfileTests(unittest.TestCase):
 
         self.assertIn("FROM python:3.12-slim", dockerfile_text)
         self.assertIn("WORKDIR /app", dockerfile_text)
-        self.assertIn("COPY apps/app-api/requirements.txt /app/requirements.txt", dockerfile_text)
-        self.assertIn("RUN pip install --no-cache-dir -r /app/requirements.txt", dockerfile_text)
+        self.assertIn(
+            "COPY apps/app-api/requirements.txt /app/requirements.txt",
+            dockerfile_text,
+        )
+        self.assertIn(
+            "RUN pip install --no-cache-dir -r /app/requirements.txt",
+            dockerfile_text,
+        )
         self.assertIn("COPY apps/app-api/src /app/src", dockerfile_text)
         self.assertIn("EXPOSE 8000", dockerfile_text)
-        self.assertIn('CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]', dockerfile_text)
+        self.assertIn(
+            (
+                'CMD ["uvicorn", "src.main:app", "--host", '
+                '"0.0.0.0", "--port", "8000"]'
+            ),
+            dockerfile_text,
+        )

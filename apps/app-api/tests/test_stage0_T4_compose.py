@@ -22,7 +22,10 @@ class Stage0ComposeTests(unittest.TestCase):
         self.assertIn("healthcheck:", compose_text)
         self.assertIn("CMD-SHELL", compose_text)
         self.assertIn(
-            "pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-app_db}",
+            (
+                "pg_isready -U ${POSTGRES_USER:-app_user} "
+                "-d ${POSTGRES_DB:-app_db}"
+            ),
             compose_text,
         )
 
@@ -34,5 +37,14 @@ class Stage0ComposeTests(unittest.TestCase):
         self.assertIn("env_file:", compose_text)
         self.assertIn("      - .env", compose_text)
         self.assertIn("      - ./apps/app-api/src:/app/src", compose_text)
-        self.assertIn("      - ./storage/audio:/app/storage/audio", compose_text)
-        self.assertIn("command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload", compose_text)
+        self.assertIn(
+            "      - ./storage/audio:/app/storage/audio",
+            compose_text,
+        )
+        self.assertIn(
+            (
+                "command: uvicorn src.main:app "
+                "--host 0.0.0.0 --port 8000 --reload"
+            ),
+            compose_text,
+        )
