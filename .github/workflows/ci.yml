@@ -65,14 +65,19 @@ jobs:
           set -euxo pipefail
           docker compose up --build -d
 
+          healthy=0
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/health | grep -qx '{"status":"ok"}'; then
-              break
+              sleep 2
+              if curl -fsS http://127.0.0.1:8000/health | grep -qx '{"status":"ok"}'; then
+                healthy=1
+                break
+              fi
             fi
             sleep 2
           done
 
-          curl -fsS http://127.0.0.1:8000/health | grep -qx '{"status":"ok"}'
+          test "$healthy" -eq 1
           docker compose exec -T app-api sh -lc "test -d /app/storage/audio"
           docker compose exec -T db psql -U app_user -d app_db -tAc "SELECT extname FROM pg_extension WHERE extname = 'vector'" | grep -qx vector
 
