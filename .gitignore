@@ -13,6 +13,8 @@ htmlcov/
 # Virtual envs
 .venv/
 venv/
+.pydeps/
+temp-pip/
 
 # Local env
 .env
@@ -39,6 +41,7 @@ apps/app-api/.tmp-stage1-t7/
 apps/app-api/.tmp-stage1-t7-*/
 apps/app-api/.tmp-stage1-t8/
 apps/app-api/.tmp-stage1-t8-*/
+apps/app-api/test-tmp-runs/
 apps/app-api/stage1-t7-*/
 apps/app-api/sqlite-check-*/
 apps/app-api/sqlite-manual.db

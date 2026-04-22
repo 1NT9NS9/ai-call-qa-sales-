@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, select
 
 APP_API_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI_PATH = APP_API_ROOT / "alembic.ini"
+TEST_TMP_ROOT = APP_API_ROOT / "test-tmp-runs"
 CALLS_PAYLOAD = {
     "external_call_id": "ext-call-001",
     "audio_storage_key": "audio/uploads/ext-call-001.wav",
@@ -32,7 +33,8 @@ class Stage1PostCallsTests(unittest.TestCase):
     def test_post_calls_creates_persisted_callsession_with_created_status(
         self,
     ) -> None:
-        temp_root = APP_API_ROOT / f".tmp-stage1-t7-{uuid.uuid4().hex}"
+        TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+        temp_root = TEST_TMP_ROOT / f"stage1-t7-{uuid.uuid4().hex}"
         temp_root.mkdir(parents=True, exist_ok=True)
         engine = None
         try:

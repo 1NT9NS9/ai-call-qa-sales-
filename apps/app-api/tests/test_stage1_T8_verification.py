@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, inspect, select
 
 APP_API_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI_PATH = APP_API_ROOT / "alembic.ini"
+TEST_TMP_ROOT = APP_API_ROOT / "test-tmp-runs"
 REQUIRED_STAGE1_TABLES = {
     "call_sessions",
     "transcript_segments",
@@ -38,7 +39,8 @@ def _clear_src_modules() -> None:
 
 class Stage1BoundedVerificationTests(unittest.TestCase):
     def _create_clean_database_context(self) -> tuple[Path, str]:
-        temp_root = APP_API_ROOT / f".tmp-stage1-t8-{uuid.uuid4().hex}"
+        TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+        temp_root = TEST_TMP_ROOT / f"stage1-t8-{uuid.uuid4().hex}"
         temp_root.mkdir(parents=True, exist_ok=True)
         database_url = f"sqlite:///{(temp_root / 'stage1.db').as_posix()}"
         return temp_root, database_url
