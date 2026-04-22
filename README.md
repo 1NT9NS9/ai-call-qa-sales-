@@ -6,15 +6,27 @@ Repository scaffold aligned with `docs/STRUCTURE.md`.
 
 Create a local `.env` file from `.env.example` before starting the stack.
 
-```bash
+```powershell
+Copy-Item .env.example .env
+```
+
+Start the Stage 0 stack from the repository root.
+
+```powershell
 docker compose up --build
 ```
 
 Published ports are bound to `127.0.0.1` for local-only access.
 
-Health check:
+Smoke check the API after the stack starts:
 
 - `GET http://127.0.0.1:8000/health`
+
+Example on Windows PowerShell:
+
+```powershell
+Invoke-WebRequest -Uri http://127.0.0.1:8000/health | Select-Object -ExpandProperty Content
+```
 
 ## Before Pushing To Git
 

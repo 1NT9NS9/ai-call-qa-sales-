@@ -6,7 +6,6 @@ COPY apps/app-api/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY apps/app-api/src /app/src
-COPY storage/audio /app/storage/audio
 
 EXPOSE 8000
 

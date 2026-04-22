@@ -32,3 +32,6 @@ data/demo/*
 !data/demo/.gitkeep
 data/kb_seed/*
 !data/kb_seed/.gitkeep
+pytest-cache-files-*
+apps/app-api/tests
+.docker-config/

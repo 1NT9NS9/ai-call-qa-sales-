@@ -1,9 +1,18 @@
 from fastapi import FastAPI
 
+from src.config.settings import load_settings
 
-app = FastAPI(title="AI Call QA & Sales Coach API")
+
+def create_app() -> FastAPI:
+    settings = load_settings()
+    application = FastAPI(title="AI Call QA & Sales Coach API")
+    application.state.settings = settings
+
+    @application.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return application
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+app = create_app()
