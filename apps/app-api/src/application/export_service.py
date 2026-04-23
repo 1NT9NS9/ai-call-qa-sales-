@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy import func, select
@@ -19,6 +20,7 @@ from src.infrastructure.persistence.models import (
     CallSession,
     DeliveryEvent,
 )
+from src.observability import log_pipeline_event
 
 
 class ExportNotFoundError(RuntimeError):
@@ -54,13 +56,20 @@ class ExportService:
         )
 
     def deliver(self, call_id: int) -> ExportResult:
+        export_started_at = perf_counter()
         delivery_payload = self._build_delivery_payload(call_id=call_id)
         attempted_at = self._parse_attempted_at(delivery_payload["deliveredAt"])
+        log_pipeline_event(
+            event="export.started",
+            call_id=call_id,
+            stage="export",
+            status="started",
+        )
 
         try:
             delivery_receipt = self._delivery_adapter.deliver(delivery_payload)
         except WebhookDeliveryError as exc:
-            self._record_delivery_event(
+            attempt_no = self._record_delivery_event(
                 call_id=call_id,
                 target_url=exc.target_url,
                 attempted_at=attempted_at,
@@ -68,11 +77,21 @@ class ExportService:
                 response_code=exc.response_status_code,
                 error_message=str(exc),
             )
+            log_pipeline_event(
+                event="webhook.delivery_result",
+                call_id=call_id,
+                stage="export",
+                status="failed",
+                attempt_no=attempt_no,
+                target_url=exc.target_url,
+                response_code=exc.response_status_code,
+                duration_ms=round((perf_counter() - export_started_at) * 1000, 2),
+            )
             raise
         except WebhookConfigurationError:
             raise
 
-        self._record_delivery_event(
+        attempt_no = self._record_delivery_event(
             call_id=call_id,
             target_url=delivery_receipt.target_url,
             attempted_at=attempted_at,
@@ -81,6 +100,17 @@ class ExportService:
             error_message=None,
         )
         self._mark_call_exported(call_id=call_id)
+        log_pipeline_event(
+            event="webhook.delivery_result",
+            call_id=call_id,
+            stage="export",
+            status="success",
+            processing_status=CallProcessingStatus.EXPORTED.value,
+            attempt_no=attempt_no,
+            target_url=delivery_receipt.target_url,
+            response_code=delivery_receipt.response_status_code,
+            duration_ms=round((perf_counter() - export_started_at) * 1000, 2),
+        )
 
         return ExportResult(
             result_id=call_id,
@@ -140,7 +170,7 @@ class ExportService:
         delivery_status: str,
         response_code: int | None,
         error_message: str | None,
-    ) -> None:
+    ) -> int:
         with self._session_factory() as session:
             next_attempt_no = self._next_attempt_no(session=session, call_id=call_id)
             session.add(
@@ -155,6 +185,7 @@ class ExportService:
                 )
             )
             session.commit()
+        return next_attempt_no
 
     @staticmethod
     def _next_attempt_no(*, session: Session, call_id: int) -> int:

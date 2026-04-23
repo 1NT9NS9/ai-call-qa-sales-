@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 import re
 from typing import Any
 
@@ -20,6 +21,7 @@ from src.infrastructure.persistence.models import (
     CallSession,
     TranscriptSegment,
 )
+from src.observability import log_pipeline_event
 from src.services.rag import RAGService
 
 
@@ -135,11 +137,27 @@ class AnalysisService:
         if self._chat_model is None:
             raise RuntimeError("Analysis chat model is not configured.")
 
+        analysis_started_at = perf_counter()
         payload = self._build_analysis_payload(call_id=call_id)
+        log_pipeline_event(
+            event="analysis.started",
+            call_id=call_id,
+            stage="analysis",
+            status="started",
+            transcript_segment_count=len(payload["context"]["transcript"]),
+        )
         if self._supports_persistence() and self._transcript_is_empty_or_too_short(
             payload["context"]["transcript"]
         ):
             self._fail_call_for_short_transcript(call_id=call_id)
+            log_pipeline_event(
+                event="analysis.failed",
+                call_id=call_id,
+                stage="analysis",
+                status="failed",
+                reason="transcript_too_short",
+                duration_ms=round((perf_counter() - analysis_started_at) * 1000, 2),
+            )
             raise RuntimeError(TRANSCRIPT_TOO_SHORT_ERROR)
         bound_model = self._bind_langchain_tools(self._chat_model)
         last_error: AnalysisOutputValidationError | None = None
@@ -151,19 +169,41 @@ class AnalysisService:
                     response=response,
                     schema=payload["schema"],
                 )
-                return self._finalize_valid_analysis(
+                finalized_result = self._finalize_valid_analysis(
                     call_id=call_id,
                     validated_output=validated_output,
                     schema=payload["schema"],
                 )
+                log_pipeline_event(
+                    event="analysis.completed",
+                    call_id=call_id,
+                    stage="analysis",
+                    status="success",
+                    processing_status=CallProcessingStatus.ANALYZED.value,
+                    confidence=finalized_result.get("confidence"),
+                    needs_review=bool(finalized_result.get("needs_review", False)),
+                    duration_ms=round((perf_counter() - analysis_started_at) * 1000, 2),
+                )
+                return finalized_result
             except AnalysisOutputValidationError as exc:
                 last_error = exc
 
         if self._supports_persistence():
-            return self._persist_review_required_invalid_output(
+            review_payload = self._persist_review_required_invalid_output(
                 call_id=call_id,
                 review_reasons=self._invalid_output_review_reasons(last_error),
             )
+            log_pipeline_event(
+                event="analysis.completed",
+                call_id=call_id,
+                stage="analysis",
+                status="review_required",
+                processing_status=CallProcessingStatus.ANALYZED.value,
+                confidence=None,
+                needs_review=True,
+                duration_ms=round((perf_counter() - analysis_started_at) * 1000, 2),
+            )
+            return review_payload
 
         raise AnalysisOutputValidationError(
             "Analysis output remained invalid after one retry."

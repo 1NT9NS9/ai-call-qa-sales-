@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import json
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
@@ -30,6 +31,7 @@ from src.infrastructure.persistence.models import (
     KnowledgeDocument,
     TranscriptSegment,
 )
+from src.observability import log_pipeline_event
 from src.services.rag import build_rag_service
 
 
@@ -453,6 +455,15 @@ def create_app() -> FastAPI:
             session.commit()
             session.refresh(call_session)
 
+        log_pipeline_event(
+            event="pipeline.started",
+            call_id=call_session.id,
+            stage="pipeline",
+            status="created",
+            processing_status=call_session.processing_status.value,
+            source_type=call_session.source_type,
+        )
+
         return CallSessionResponse(
             id=call_session.id,
             external_call_id=call_session.external_call_id,
@@ -495,6 +506,7 @@ def create_app() -> FastAPI:
         request: Request,
         file: UploadFile = File(...),
     ) -> AudioUploadAcceptedResponse:
+        transcription_started_at = perf_counter()
         audio_bytes = await file.read()
         if not audio_bytes:
             raise HTTPException(
@@ -534,6 +546,16 @@ def create_app() -> FastAPI:
             except Exception:
                 session.rollback()
                 raise
+
+        log_pipeline_event(
+            event="transcription.completed",
+            call_id=call_id,
+            stage="transcription",
+            status="success",
+            processing_status=CallProcessingStatus.TRANSCRIBED.value,
+            transcript_segment_count=len(transcript_segments),
+            duration_ms=round((perf_counter() - transcription_started_at) * 1000, 2),
+        )
 
         return AudioUploadAcceptedResponse(
             call_id=call_id,
