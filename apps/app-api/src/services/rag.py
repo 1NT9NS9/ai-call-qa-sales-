@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.adapters.embeddings import EmbeddingService
-from src.infrastructure.persistence.models import KnowledgeChunk, TranscriptSegment
+from src.infrastructure.persistence.models import TranscriptSegment
 
 
 @dataclass(frozen=True)
