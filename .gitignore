@@ -34,6 +34,7 @@ storage/audio/*
 !storage/audio/.gitkeep
 data/demo/*
 !data/demo/.gitkeep
+!data/demo/stage5-demo-scenarios.md
 data/kb_seed/*
 !data/kb_seed/.gitkeep
 !data/kb_seed/*.md

@@ -178,6 +178,8 @@ Review structured pipeline logs from the app:
 docker compose logs app-api | Select-String 'app.pipeline'
 ```
 
+Three demo-ready Stage 5 scenarios are listed in `data/demo/stage5-demo-scenarios.md`.
+
 ## Before Pushing To Git
 
 Check these points before publishing the repository:
