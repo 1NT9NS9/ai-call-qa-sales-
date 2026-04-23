@@ -9,10 +9,14 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.infrastructure.persistence.models import CallSession
 from src.services.rag import RAGService, RetrievedKnowledgeChunk
 
+StructuredToolType: Any
+
 try:
-    from langchain_core.tools import StructuredTool
+    from langchain_core.tools import StructuredTool as _StructuredTool
+
+    StructuredToolType = _StructuredTool
 except ImportError:  # pragma: no cover - exercised only when langchain-core is absent
-    StructuredTool = None  # type: ignore[assignment]
+    StructuredToolType = None
 
 
 @dataclass(frozen=True)
@@ -177,7 +181,7 @@ def build_langchain_tools(
         session_factory=session_factory,
         rag_service=rag_service,
     )
-    structured_tool_cls = StructuredTool
+    structured_tool_cls = StructuredToolType
     if structured_tool_cls is None:
         return [
             tool_api["retrieve_context"],
