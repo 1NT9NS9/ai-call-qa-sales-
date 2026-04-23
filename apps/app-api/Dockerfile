@@ -6,6 +6,7 @@ COPY apps/app-api/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY apps/app-api/src /app/src
+COPY data/kb_seed /app/data/kb_seed
 
 EXPOSE 8000
 

@@ -21,6 +21,7 @@ class Stage0DockerfileTests(unittest.TestCase):
             dockerfile_text,
         )
         self.assertIn("COPY apps/app-api/src /app/src", dockerfile_text)
+        self.assertIn("COPY data/kb_seed /app/data/kb_seed", dockerfile_text)
         self.assertIn("EXPOSE 8000", dockerfile_text)
         self.assertIn(
             (

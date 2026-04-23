@@ -35,6 +35,7 @@ data/demo/*
 !data/demo/.gitkeep
 data/kb_seed/*
 !data/kb_seed/.gitkeep
+!data/kb_seed/*.md
 pytest-cache-files-*
 .docker-config/
 apps/app-api/.tmp-stage1-t7/
