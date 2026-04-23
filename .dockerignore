@@ -49,3 +49,4 @@ apps/app-api/sqlite-check-*/
 apps/app-api/sqlite-manual.db
 apps/app-api/sqlite-nested-test/
 docs/
+apps/app-api/tests/

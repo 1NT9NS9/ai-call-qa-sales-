@@ -40,6 +40,15 @@ class AnalysisOutputValidationError(RuntimeError):
     pass
 
 
+REVIEW_CONFIDENCE_THRESHOLD = 0.70
+MIN_TRANSCRIPT_WORD_COUNT = 3
+INVALID_OUTPUT_REVIEW_REASON = "analysis output remained invalid after retry"
+LOW_CONFIDENCE_REVIEW_REASON = (
+    f"confidence below {REVIEW_CONFIDENCE_THRESHOLD:.2f} threshold"
+)
+TRANSCRIPT_TOO_SHORT_ERROR = "Analysis transcript is empty or too short."
+
+
 def _default_resources_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "resources" / "analysis"
 
@@ -127,6 +136,11 @@ class AnalysisService:
             raise RuntimeError("Analysis chat model is not configured.")
 
         payload = self._build_analysis_payload(call_id=call_id)
+        if self._supports_persistence() and self._transcript_is_empty_or_too_short(
+            payload["context"]["transcript"]
+        ):
+            self._fail_call_for_short_transcript(call_id=call_id)
+            raise RuntimeError(TRANSCRIPT_TOO_SHORT_ERROR)
         bound_model = self._bind_langchain_tools(self._chat_model)
         last_error: AnalysisOutputValidationError | None = None
 
@@ -144,6 +158,12 @@ class AnalysisService:
                 )
             except AnalysisOutputValidationError as exc:
                 last_error = exc
+
+        if self._supports_persistence():
+            return self._persist_review_required_invalid_output(
+                call_id=call_id,
+                review_reasons=self._invalid_output_review_reasons(last_error),
+            )
 
         raise AnalysisOutputValidationError(
             "Analysis output remained invalid after one retry."
@@ -238,6 +258,10 @@ class AnalysisService:
             schema=schema,
         )
         finalized_output["confidence"] = computed_confidence
+        finalized_output = self._apply_review_rules(
+            result_payload=finalized_output,
+            confidence=computed_confidence,
+        )
         self._persist_valid_analysis(
             call_id=call_id,
             result_payload=finalized_output,
@@ -337,6 +361,25 @@ class AnalysisService:
         )
         return round(confidence, 2)
 
+    def _apply_review_rules(
+        self,
+        *,
+        result_payload: dict[str, Any],
+        confidence: float,
+    ) -> dict[str, Any]:
+        finalized_payload = dict(result_payload)
+        review_reasons = list(finalized_payload.get("review_reasons") or [])
+        needs_review = bool(finalized_payload.get("needs_review", False))
+
+        if confidence < REVIEW_CONFIDENCE_THRESHOLD:
+            needs_review = True
+            if LOW_CONFIDENCE_REVIEW_REASON not in review_reasons:
+                review_reasons.append(LOW_CONFIDENCE_REVIEW_REASON)
+
+        finalized_payload["needs_review"] = needs_review
+        finalized_payload["review_reasons"] = review_reasons
+        return finalized_payload
+
     def _persist_valid_analysis(
         self,
         *,
@@ -364,6 +407,68 @@ class AnalysisService:
             persisted_call.processing_status = CallProcessingStatus.ANALYZED
 
             session.commit()
+
+    def _persist_review_required_invalid_output(
+        self,
+        *,
+        call_id: int,
+        review_reasons: list[str],
+    ) -> dict[str, Any]:
+        if self._session_factory is None:
+            raise RuntimeError("Analysis persistence requires session_factory.")
+
+        review_payload = {
+            "needs_review": True,
+            "review_reasons": review_reasons,
+        }
+        with self._session_factory() as session:
+            persisted_analysis = session.get(CallAnalysis, call_id)
+            if persisted_analysis is None:
+                persisted_analysis = CallAnalysis(call_id=call_id)
+                session.add(persisted_analysis)
+
+            persisted_analysis.result_json = None
+            persisted_analysis.confidence = None
+            persisted_analysis.review_required = True
+            persisted_analysis.review_reasons = review_reasons
+
+            persisted_call = session.get(CallSession, call_id)
+            if persisted_call is None:
+                raise RuntimeError(f"CallSession not found for call_id={call_id}.")
+            persisted_call.processing_status = CallProcessingStatus.ANALYZED
+
+            session.commit()
+
+        return review_payload
+
+    def _fail_call_for_short_transcript(self, *, call_id: int) -> None:
+        if not self._supports_persistence():
+            return
+
+        with self._session_factory() as session:
+            persisted_call = session.get(CallSession, call_id)
+            if persisted_call is None:
+                raise RuntimeError(f"CallSession not found for call_id={call_id}.")
+            persisted_call.processing_status = CallProcessingStatus.FAILED
+            session.commit()
+
+    @staticmethod
+    def _invalid_output_review_reasons(
+        error: AnalysisOutputValidationError | None,
+    ) -> list[str]:
+        if error is None:
+            return [INVALID_OUTPUT_REVIEW_REASON]
+        return [INVALID_OUTPUT_REVIEW_REASON, str(error)]
+
+    @staticmethod
+    def _transcript_is_empty_or_too_short(
+        transcript: list[dict[str, Any]],
+    ) -> bool:
+        transcript_words = sum(
+            len(str(segment.get("text", "")).split())
+            for segment in transcript
+        )
+        return transcript_words < MIN_TRANSCRIPT_WORD_COUNT
 
     def _validate_schema_instance(
         self,
