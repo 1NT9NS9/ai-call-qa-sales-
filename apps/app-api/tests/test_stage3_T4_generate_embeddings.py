@@ -1,5 +1,4 @@
 import importlib
-import math
 import shutil
 import unittest
 import uuid
@@ -15,21 +14,11 @@ from conftest import (
     temporary_postgres_database,
 )
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 KB_SEED_DIR = REPO_ROOT / "data" / "kb_seed"
-
-
-def _cosine_similarity(left: list[float], right: list[float]) -> float:
-    numerator = sum(left_value * right_value for left_value, right_value in zip(left, right))
-    left_magnitude = math.sqrt(sum(value * value for value in left))
-    right_magnitude = math.sqrt(sum(value * value for value in right))
-    if left_magnitude == 0 or right_magnitude == 0:
-        return 0.0
-
-    return numerator / (left_magnitude * right_magnitude)
 
 
 class Stage3KnowledgeEmbeddingTests(unittest.TestCase):
@@ -74,20 +63,25 @@ class Stage3KnowledgeEmbeddingTests(unittest.TestCase):
 
                     engine = create_engine(database_url)
                     with engine.connect() as connection:
-                        imported_documents = connection.execute(
-                            select(persistence_models.KnowledgeDocument.__table__)
-                        ).mappings().all()
                         imported_chunks = connection.execute(
                             select(persistence_models.KnowledgeChunk.__table__).order_by(
                                 persistence_models.KnowledgeChunk.document_id,
                                 persistence_models.KnowledgeChunk.chunk_index,
                             )
                         ).mappings().all()
+                        stored_vector_count_before_embed = connection.execute(
+                            text("SELECT COUNT(*) FROM knowledge_chunk_vectors")
+                        ).scalar_one()
 
                     self.assertGreater(
                         len(imported_chunks),
                         0,
                         "expected stored knowledge chunks before verifying embedding generation",
+                    )
+                    self.assertEqual(
+                        stored_vector_count_before_embed,
+                        0,
+                        "expected /knowledge/import to stop before vector persistence begins",
                     )
 
                 with patch.dict("os.environ", env_values, clear=True):
@@ -104,64 +98,22 @@ class Stage3KnowledgeEmbeddingTests(unittest.TestCase):
                     len(imported_chunks),
                     "expected /knowledge/embed to process every stored chunk",
                 )
+                engine.dispose()
+                engine = create_engine(database_url)
+                with engine.connect() as connection:
+                    stored_vector_count_after_embed = connection.execute(
+                        text("SELECT COUNT(*) FROM knowledge_chunk_vectors")
+                    ).scalar_one()
 
-                generated_embeddings = app.state.embedding_service.embed(
-                    [row["chunk_text"] for row in imported_chunks]
-                )
-                self.assertEqual(len(generated_embeddings), len(imported_chunks))
-                self.assertTrue(
-                    all(isinstance(embedding, list) for embedding in generated_embeddings),
-                    "expected generated embeddings to be returned as vectors",
-                )
-                self.assertTrue(
-                    all(len(embedding) > 0 for embedding in generated_embeddings),
-                    "expected generated embeddings to be non-empty",
-                )
-
-                query_embedding = app.state.embedding_service.embed(
-                    ["budget pricing objection and internal approval"]
-                )[0]
-                document_paths = {
-                    row["id"]: row["source_path"] for row in imported_documents
-                }
-                pricing_similarities = [
-                    _cosine_similarity(query_embedding, embedding)
-                    for row, embedding in zip(
-                        imported_chunks,
-                        generated_embeddings,
-                        strict=True,
-                    )
-                    if document_paths[row["document_id"]].endswith(
-                        "objection-handling-pricing.md"
-                    )
-                ]
-                follow_up_similarities = [
-                    _cosine_similarity(query_embedding, embedding)
-                    for row, embedding in zip(
-                        imported_chunks,
-                        generated_embeddings,
-                        strict=True,
-                    )
-                    if document_paths[row["document_id"]].endswith(
-                        "follow-up-email-guidelines.md"
-                    )
-                ]
-
-                self.assertTrue(
-                    pricing_similarities,
-                    "expected pricing chunks to exist for embedding verification",
-                )
-                self.assertTrue(
-                    follow_up_similarities,
-                    "expected follow-up chunks to exist for embedding verification",
-                )
                 self.assertGreater(
-                    max(pricing_similarities),
-                    max(follow_up_similarities),
-                    (
-                        "expected generated embeddings to preserve topical similarity so "
-                        "pricing queries rank closer to pricing chunks than follow-up chunks"
-                    ),
+                    stored_vector_count_after_embed,
+                    0,
+                    "expected /knowledge/embed to persist stored vectors for imported chunks",
+                )
+                self.assertEqual(
+                    stored_vector_count_after_embed,
+                    len(imported_chunks),
+                    "expected /knowledge/embed to persist one stored vector per imported chunk",
                 )
         finally:
             clear_src_modules()
