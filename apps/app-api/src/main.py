@@ -9,11 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from src.adapters.embeddings import EmbeddingService, build_embedding_service
 from src.adapters.stt import build_stt_adapter
 from src.config.settings import load_settings
 from src.infrastructure.persistence.models import (
     CallProcessingStatus,
     CallSession,
+    KnowledgeChunk,
+    KnowledgeDocument,
     TranscriptSegment,
 )
 
@@ -50,6 +53,15 @@ class AudioUploadAcceptedResponse(BaseModel):
     call_id: int
     bytes_received: int
     content_type: str | None
+
+
+class KnowledgeImportResponse(BaseModel):
+    imported_count: int
+    chunk_count: int
+
+
+class KnowledgeEmbedResponse(BaseModel):
+    embedded_count: int
 
 
 def _store_uploaded_audio(
@@ -133,6 +145,115 @@ def _create_engine(database_url: str):
     return create_engine(database_url, connect_args=connect_args)
 
 
+def _knowledge_seed_dir() -> Path:
+    return Path(__file__).resolve().parents[3] / "data" / "kb_seed"
+
+
+def _import_seed_knowledge_documents(session: Session) -> int:
+    repo_root = Path(__file__).resolve().parents[3]
+    kb_seed_dir = _knowledge_seed_dir()
+    if not kb_seed_dir.is_dir():
+        raise RuntimeError(f"Knowledge seed directory not found: {kb_seed_dir}")
+
+    seed_documents = sorted(
+        path
+        for path in kb_seed_dir.iterdir()
+        if path.is_file() and path.name != ".gitkeep"
+    )
+    imported_count = 0
+
+    for path in seed_documents:
+        source_path = path.relative_to(repo_root).as_posix()
+        existing_document = session.scalar(
+            select(KnowledgeDocument).where(
+                KnowledgeDocument.source_path == source_path
+            )
+        )
+        if existing_document is not None:
+            continue
+
+        session.add(
+            KnowledgeDocument(
+                source_path=source_path,
+                content=path.read_text(encoding="utf-8"),
+            )
+        )
+        imported_count += 1
+
+    session.commit()
+    return imported_count
+
+
+def _split_knowledge_document(content: str) -> list[str]:
+    chunks: list[str] = []
+    current_lines: list[str] = []
+
+    for raw_line in content.splitlines():
+        line = raw_line.rstrip()
+        if line.strip():
+            current_lines.append(line)
+            continue
+
+        if current_lines:
+            chunks.append("\n".join(current_lines).strip())
+            current_lines = []
+
+    if current_lines:
+        chunks.append("\n".join(current_lines).strip())
+
+    return chunks
+
+
+def _chunk_imported_knowledge_documents(session: Session) -> int:
+    documents = list(
+        session.scalars(select(KnowledgeDocument).order_by(KnowledgeDocument.id))
+    )
+    chunk_count = 0
+
+    for document in documents:
+        existing_chunk = session.scalar(
+            select(KnowledgeChunk.id).where(
+                KnowledgeChunk.document_id == document.id
+            )
+        )
+        if existing_chunk is not None:
+            continue
+
+        chunk_texts = _split_knowledge_document(document.content)
+        for chunk_index, chunk_text in enumerate(chunk_texts):
+            session.add(
+                KnowledgeChunk(
+                    document_id=document.id,
+                    chunk_text=chunk_text,
+                    chunk_index=chunk_index,
+                )
+            )
+            chunk_count += 1
+
+    session.commit()
+    return chunk_count
+
+
+def _embed_knowledge_chunks(
+    session: Session,
+    embedding_service: EmbeddingService,
+) -> int:
+    chunks = list(
+        session.scalars(
+            select(KnowledgeChunk)
+            .where(KnowledgeChunk.embedding.is_(None))
+            .order_by(KnowledgeChunk.document_id, KnowledgeChunk.chunk_index)
+        )
+    )
+
+    embeddings = embedding_service.embed([chunk.chunk_text for chunk in chunks])
+    for chunk, embedding in zip(chunks, embeddings, strict=True):
+        chunk.embedding = embedding
+
+    session.commit()
+    return len(chunks)
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     try:
@@ -151,6 +272,7 @@ def create_app() -> FastAPI:
     )
     application.state.settings = settings
     application.state.engine = _create_engine(settings.database_url)
+    application.state.embedding_service = build_embedding_service()
     application.state.stt_adapter = build_stt_adapter()
     application.state.session_factory = sessionmaker(
         bind=application.state.engine,
@@ -160,6 +282,35 @@ def create_app() -> FastAPI:
     @application.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @application.post("/knowledge/import", status_code=status.HTTP_201_CREATED)
+    def import_knowledge(request: Request) -> KnowledgeImportResponse:
+        with request.app.state.session_factory() as session:
+            try:
+                imported_count = _import_seed_knowledge_documents(session)
+                chunk_count = _chunk_imported_knowledge_documents(session)
+            except RuntimeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=str(exc),
+                ) from exc
+
+        return KnowledgeImportResponse(
+            imported_count=imported_count,
+            chunk_count=chunk_count,
+        )
+
+    @application.post("/knowledge/embed", status_code=status.HTTP_200_OK)
+    def embed_knowledge(request: Request) -> KnowledgeEmbedResponse:
+        with request.app.state.session_factory() as session:
+            embedded_count = _embed_knowledge_chunks(
+                session=session,
+                embedding_service=request.app.state.embedding_service,
+            )
+
+        return KnowledgeEmbedResponse(
+            embedded_count=embedded_count,
+        )
 
     @application.post("/calls", status_code=status.HTTP_201_CREATED)
     def create_call_session(
