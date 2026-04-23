@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, JSON, Text
+from sqlalchemy import ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.infrastructure.persistence.base import Base
@@ -16,7 +16,6 @@ class _ChunkRecord(Base):
         nullable=False,
     )
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[list[float] | None] = mapped_column(JSON, nullable=True)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
 
     document: Mapped[_DocumentRecord] = relationship()

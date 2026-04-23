@@ -12,7 +12,6 @@ REQUIRED_KNOWLEDGECHUNK_COLUMNS = {
     "id",
     "document_id",
     "chunk_text",
-    "embedding",
     "chunk_index",
 }
 def _candidate_module_names() -> list[str]:

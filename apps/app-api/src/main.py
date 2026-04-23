@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import json
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.adapters.embeddings import EmbeddingService, build_embedding_service
@@ -238,17 +239,45 @@ def _embed_knowledge_chunks(
     session: Session,
     embedding_service: EmbeddingService,
 ) -> int:
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        raise RuntimeError(
+            "Stage 3 knowledge embedding requires PostgreSQL with pgvector."
+        )
+
     chunks = list(
         session.scalars(
             select(KnowledgeChunk)
-            .where(KnowledgeChunk.embedding.is_(None))
+            .where(
+                text(
+                    """
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM knowledge_chunk_vectors
+                        WHERE knowledge_chunk_vectors.chunk_id = knowledge_chunks.id
+                    )
+                    """
+                )
+            )
             .order_by(KnowledgeChunk.document_id, KnowledgeChunk.chunk_index)
         )
     )
 
     embeddings = embedding_service.embed([chunk.chunk_text for chunk in chunks])
     for chunk, embedding in zip(chunks, embeddings, strict=True):
-        chunk.embedding = embedding
+        session.execute(
+            text(
+                """
+                INSERT INTO knowledge_chunk_vectors (chunk_id, embedding)
+                VALUES (:chunk_id, CAST(:embedding AS vector))
+                ON CONFLICT (chunk_id) DO UPDATE
+                SET embedding = EXCLUDED.embedding
+                """
+            ),
+            {
+                "chunk_id": chunk.id,
+                "embedding": json.dumps(embedding),
+            },
+        )
 
     session.commit()
     return len(chunks)
@@ -303,10 +332,16 @@ def create_app() -> FastAPI:
     @application.post("/knowledge/embed", status_code=status.HTTP_200_OK)
     def embed_knowledge(request: Request) -> KnowledgeEmbedResponse:
         with request.app.state.session_factory() as session:
-            embedded_count = _embed_knowledge_chunks(
-                session=session,
-                embedding_service=request.app.state.embedding_service,
-            )
+            try:
+                embedded_count = _embed_knowledge_chunks(
+                    session=session,
+                    embedding_service=request.app.state.embedding_service,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                    detail=str(exc),
+                ) from exc
 
         return KnowledgeEmbedResponse(
             embedded_count=embedded_count,
