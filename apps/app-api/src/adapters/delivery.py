@@ -12,7 +12,16 @@ class WebhookConfigurationError(RuntimeError):
 
 
 class WebhookDeliveryError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        target_url: str,
+        response_status_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.target_url = target_url
+        self.response_status_code = response_status_code
 
 
 @dataclass(frozen=True)
@@ -40,8 +49,17 @@ class WebhookDeliveryAdapter:
             with httpx.Client(timeout=self._timeout_seconds, trust_env=False) as client:
                 response = client.post(target_url, json=payload)
                 response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise WebhookDeliveryError(
+                str(exc),
+                target_url=target_url,
+                response_status_code=exc.response.status_code,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise WebhookDeliveryError(str(exc)) from exc
+            raise WebhookDeliveryError(
+                str(exc),
+                target_url=target_url,
+            ) from exc
 
         return WebhookDeliveryReceipt(
             target_url=target_url,

@@ -4,16 +4,20 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.adapters.delivery import (
+    WebhookConfigurationError,
     WebhookDeliveryAdapter,
+    WebhookDeliveryError,
     build_webhook_delivery_adapter,
 )
 from src.infrastructure.persistence.models import (
     CallAnalysis,
     CallProcessingStatus,
     CallSession,
+    DeliveryEvent,
 )
 
 
@@ -31,6 +35,7 @@ class ExportResult:
     status: str
     delivered_at: str
     target_url: str
+    response_code: int | None = None
 
 
 class ExportService:
@@ -50,7 +55,31 @@ class ExportService:
 
     def deliver(self, call_id: int) -> ExportResult:
         delivery_payload = self._build_delivery_payload(call_id=call_id)
-        delivery_receipt = self._delivery_adapter.deliver(delivery_payload)
+        attempted_at = self._parse_attempted_at(delivery_payload["deliveredAt"])
+
+        try:
+            delivery_receipt = self._delivery_adapter.deliver(delivery_payload)
+        except WebhookDeliveryError as exc:
+            self._record_delivery_event(
+                call_id=call_id,
+                target_url=exc.target_url,
+                attempted_at=attempted_at,
+                delivery_status="failed",
+                response_code=exc.response_status_code,
+                error_message=str(exc),
+            )
+            raise
+        except WebhookConfigurationError:
+            raise
+
+        self._record_delivery_event(
+            call_id=call_id,
+            target_url=delivery_receipt.target_url,
+            attempted_at=attempted_at,
+            delivery_status="success",
+            response_code=delivery_receipt.response_status_code,
+            error_message=None,
+        )
         self._mark_call_exported(call_id=call_id)
 
         return ExportResult(
@@ -58,6 +87,7 @@ class ExportService:
             status=delivery_payload["status"],
             delivered_at=delivery_payload["deliveredAt"],
             target_url=delivery_receipt.target_url,
+            response_code=delivery_receipt.response_status_code,
         )
 
     def _build_delivery_payload(self, *, call_id: int) -> dict[str, Any]:
@@ -100,6 +130,44 @@ class ExportService:
 
             call_session.processing_status = CallProcessingStatus.EXPORTED
             session.commit()
+
+    def _record_delivery_event(
+        self,
+        *,
+        call_id: int,
+        target_url: str,
+        attempted_at: datetime,
+        delivery_status: str,
+        response_code: int | None,
+        error_message: str | None,
+    ) -> None:
+        with self._session_factory() as session:
+            next_attempt_no = self._next_attempt_no(session=session, call_id=call_id)
+            session.add(
+                DeliveryEvent(
+                    call_id=call_id,
+                    target_url=target_url,
+                    delivery_status=delivery_status,
+                    response_code=response_code,
+                    attempt_no=next_attempt_no,
+                    attempted_at=attempted_at,
+                    error_message=error_message,
+                )
+            )
+            session.commit()
+
+    @staticmethod
+    def _next_attempt_no(*, session: Session, call_id: int) -> int:
+        current_attempt = session.scalar(
+            select(func.max(DeliveryEvent.attempt_no)).where(
+                DeliveryEvent.call_id == call_id
+            )
+        )
+        return int(current_attempt or 0) + 1
+
+    @staticmethod
+    def _parse_attempted_at(delivered_at: str) -> datetime:
+        return datetime.fromisoformat(delivered_at.replace("Z", "+00:00"))
 
 
 def build_export_service(
