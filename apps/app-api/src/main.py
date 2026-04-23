@@ -11,9 +11,19 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.adapters.embeddings import EmbeddingService, build_embedding_service
+from src.adapters.delivery import (
+    WebhookConfigurationError,
+    WebhookDeliveryError,
+)
 from src.adapters.stt import build_stt_adapter
+from src.application.export_service import (
+    ExportNotFoundError,
+    ExportNotReadyError,
+    build_export_service,
+)
 from src.config.settings import load_settings
 from src.infrastructure.persistence.models import (
+    CallAnalysis,
     CallProcessingStatus,
     CallSession,
     KnowledgeChunk,
@@ -49,12 +59,20 @@ class TranscriptSegmentResponse(BaseModel):
 
 class CallDetailResponse(CallSessionResponse):
     transcript_segments: list[TranscriptSegmentResponse]
+    result: dict[str, Any] | None = None
 
 
 class AudioUploadAcceptedResponse(BaseModel):
     call_id: int
     bytes_received: int
     content_type: str | None
+
+
+class ExportCallResponse(BaseModel):
+    result_id: int
+    status: str
+    delivered_at: str
+    target_url: str
 
 
 class KnowledgeImportResponse(BaseModel):
@@ -136,6 +154,7 @@ def _load_transcript_segments(
 def _build_call_detail_response(
     call_session: CallSession,
     transcript_segments: list[TranscriptSegment],
+    result_payload: dict[str, Any] | None,
 ) -> CallDetailResponse:
     return CallDetailResponse(
         id=call_session.id,
@@ -144,6 +163,7 @@ def _build_call_detail_response(
         audio_storage_key=call_session.audio_storage_key,
         source_type=call_session.source_type,
         metadata=call_session.metadata_json,
+        result=result_payload,
         transcript_segments=[
             TranscriptSegmentResponse(
                 speaker=segment.speaker,
@@ -163,6 +183,17 @@ def _create_engine(database_url: str):
         connect_args["check_same_thread"] = False
 
     return create_engine(database_url, connect_args=connect_args)
+
+
+def _load_call_result(
+    session: Session,
+    call_id: int,
+) -> dict[str, Any] | None:
+    analysis = session.get(CallAnalysis, call_id)
+    if analysis is None:
+        return None
+
+    return analysis.result_json
 
 
 def _knowledge_seed_dir() -> Path:
@@ -330,6 +361,11 @@ def create_app() -> FastAPI:
         session_factory=application.state.session_factory,
         embedding_service=application.state.embedding_service,
     )
+    application.state.export_service = build_export_service(
+        session_factory=application.state.session_factory,
+        webhook_target_url=settings.webhook_target_url,
+        app_env=settings.app_env,
+    )
 
     @application.get("/health")
     def health() -> dict[str, str]:
@@ -443,9 +479,14 @@ def create_app() -> FastAPI:
                 session=session,
                 call_id=call_id,
             )
+            result_payload = _load_call_result(
+                session=session,
+                call_id=call_id,
+            )
             return _build_call_detail_response(
                 call_session=call_session,
                 transcript_segments=transcript_segments,
+                result_payload=result_payload,
             )
 
     @application.post("/calls/{call_id}/audio")
@@ -498,6 +539,41 @@ def create_app() -> FastAPI:
             call_id=call_id,
             bytes_received=len(audio_bytes),
             content_type=file.content_type,
+        )
+
+    @application.post("/calls/{call_id}/export", status_code=status.HTTP_200_OK)
+    def export_call_result(
+        call_id: int,
+        request: Request,
+    ) -> ExportCallResponse:
+        try:
+            export_result = request.app.state.export_service.deliver(call_id=call_id)
+        except ExportNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+        except ExportNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
+            ) from exc
+        except WebhookConfigurationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            ) from exc
+        except WebhookDeliveryError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc),
+            ) from exc
+
+        return ExportCallResponse(
+            result_id=export_result.result_id,
+            status=export_result.status,
+            delivered_at=export_result.delivered_at,
+            target_url=export_result.target_url,
         )
 
     return application

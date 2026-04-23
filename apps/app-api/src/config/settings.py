@@ -33,6 +33,7 @@ class Settings:
     app_port: int
     database_url: str
     storage_audio_dir: str
+    webhook_target_url: str | None
 
 
 def _load_dotenv_values(dotenv_path: Path | None = None) -> dict[str, str]:
@@ -78,4 +79,9 @@ def load_settings() -> Settings:
         app_port=int(resolved_values["APP_PORT"]),
         database_url=resolved_values["DATABASE_URL"],
         storage_audio_dir=resolved_values["STORAGE_AUDIO_DIR"],
+        webhook_target_url=(
+            os.getenv("WEBHOOK_TARGET_URL")
+            or dotenv_values.get("WEBHOOK_TARGET_URL")
+            or None
+        ),
     )
