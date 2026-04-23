@@ -50,4 +50,3 @@ apps/app-api/sqlite-manual.db
 apps/app-api/sqlite-nested-test/
 docs/task/
 docs/cleaner/
-apps/app-api/tests/
