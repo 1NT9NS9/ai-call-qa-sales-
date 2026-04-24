@@ -7,7 +7,17 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.adapters.embeddings import EmbeddingService
-from src.infrastructure.persistence.models import TranscriptSegment
+from src.infrastructure.persistence.models import (
+    KnowledgeChunk,
+    KnowledgeDocument,
+    TranscriptSegment,
+)
+
+
+@dataclass(frozen=True)
+class IndexableKnowledgeDocument:
+    source_path: str
+    content: str
 
 
 @dataclass(frozen=True)
@@ -28,6 +38,70 @@ class RAGService:
     ) -> None:
         self._session_factory = session_factory
         self._embedding_service = embedding_service
+
+    def index(self, documents: list[IndexableKnowledgeDocument]) -> None:
+        if not documents:
+            return
+
+        with self._session_factory() as session:
+            if session.bind is None or session.bind.dialect.name != "postgresql":
+                raise RuntimeError(
+                    "RAG indexing requires PostgreSQL with pgvector."
+                )
+
+            indexed_chunks: list[tuple[int, str]] = []
+            for document in documents:
+                existing_document = session.scalar(
+                    select(KnowledgeDocument).where(
+                        KnowledgeDocument.source_path == document.source_path
+                    )
+                )
+                if existing_document is not None:
+                    continue
+
+                persisted_document = KnowledgeDocument(
+                    source_path=document.source_path,
+                    content=document.content,
+                )
+                session.add(persisted_document)
+                session.flush()
+
+                chunk_texts = self._split_document(document.content)
+                for chunk_index, chunk_text in enumerate(chunk_texts):
+                    persisted_chunk = KnowledgeChunk(
+                        document_id=persisted_document.id,
+                        chunk_text=chunk_text,
+                        chunk_index=chunk_index,
+                    )
+                    session.add(persisted_chunk)
+                    session.flush()
+                    indexed_chunks.append((persisted_chunk.id, persisted_chunk.chunk_text))
+
+            if indexed_chunks:
+                embeddings = self._embedding_service.embed(
+                    [chunk_text for _, chunk_text in indexed_chunks]
+                )
+                for (chunk_id, _chunk_text), embedding in zip(
+                    indexed_chunks,
+                    embeddings,
+                    strict=True,
+                ):
+                    session.execute(
+                        text(
+                            """
+                            INSERT INTO knowledge_chunk_vectors (chunk_id, embedding)
+                            VALUES (:chunk_id, CAST(:embedding AS vector))
+                            ON CONFLICT (chunk_id) DO UPDATE
+                            SET embedding = EXCLUDED.embedding
+                            """
+                        ),
+                        {
+                            "chunk_id": chunk_id,
+                            "embedding": json.dumps(embedding),
+                        },
+                    )
+
+            session.commit()
 
     def search(self, query: str, limit: int = 5) -> list[RetrievedKnowledgeChunk]:
         with self._session_factory() as session:
@@ -56,6 +130,26 @@ class RAGService:
             )
 
         return " ".join(segment.text for segment in transcript_segments)
+
+    @staticmethod
+    def _split_document(content: str) -> list[str]:
+        chunks: list[str] = []
+        current_lines: list[str] = []
+
+        for raw_line in content.splitlines():
+            line = raw_line.rstrip()
+            if line.strip():
+                current_lines.append(line)
+                continue
+
+            if current_lines:
+                chunks.append("\n".join(current_lines).strip())
+                current_lines = []
+
+        if current_lines:
+            chunks.append("\n".join(current_lines).strip())
+
+        return chunks
 
     def _search(
         self,

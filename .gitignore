@@ -51,3 +51,5 @@ apps/app-api/sqlite-manual.db
 apps/app-api/sqlite-nested-test/
 docs/task/
 docs/cleaner/
+.codex-tmp/
+.codex-pip-cache/

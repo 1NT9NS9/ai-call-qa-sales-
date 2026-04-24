@@ -17,12 +17,17 @@ from src.adapters.delivery import (
     WebhookDeliveryError,
 )
 from src.adapters.stt import build_stt_adapter
+from src.application.analysis_service import (
+    AnalysisOutputValidationError,
+    TRANSCRIPT_TOO_SHORT_ERROR,
+    build_analysis_service,
+)
 from src.application.export_service import (
     ExportNotFoundError,
     ExportNotReadyError,
     build_export_service,
 )
-from src.config.settings import load_settings
+from src.config.settings import REPO_ROOT, load_settings
 from src.infrastructure.persistence.models import (
     CallAnalysis,
     CallProcessingStatus,
@@ -187,6 +192,24 @@ def _create_engine(database_url: str):
     return create_engine(database_url, connect_args=connect_args)
 
 
+def _build_analysis_chat_model(settings: Any) -> Any:
+    if not settings.openai_api_key:
+        return None
+
+    from langchain_openai import ChatOpenAI
+
+    chat_model_kwargs: dict[str, Any] = {
+        "api_key": settings.openai_api_key,
+        "model": settings.model,
+        "reasoning_effort": settings.reasoning_effort,
+        "temperature": 0,
+    }
+    if settings.openai_base_url:
+        chat_model_kwargs["base_url"] = settings.openai_base_url
+
+    return ChatOpenAI(**chat_model_kwargs)
+
+
 def _load_call_result(
     session: Session,
     call_id: int,
@@ -199,11 +222,11 @@ def _load_call_result(
 
 
 def _knowledge_seed_dir() -> Path:
-    return Path(__file__).resolve().parents[3] / "data" / "kb_seed"
+    return REPO_ROOT / "data" / "kb_seed"
 
 
 def _import_seed_knowledge_documents(session: Session) -> int:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = REPO_ROOT
     kb_seed_dir = _knowledge_seed_dir()
     if not kb_seed_dir.is_dir():
         raise RuntimeError(f"Knowledge seed directory not found: {kb_seed_dir}")
@@ -347,6 +370,7 @@ async def lifespan(application: FastAPI):
 
 def create_app() -> FastAPI:
     settings = load_settings()
+    analysis_chat_model = _build_analysis_chat_model(settings)
     application = FastAPI(
         title="AI Call QA & Sales Coach API",
         lifespan=lifespan,
@@ -354,7 +378,13 @@ def create_app() -> FastAPI:
     application.state.settings = settings
     application.state.engine = _create_engine(settings.database_url)
     application.state.embedding_service = build_embedding_service()
-    application.state.stt_adapter = build_stt_adapter()
+    application.state.stt_adapter = build_stt_adapter(
+        api_key=settings.openai_api_key if settings.app_env != "test" else None,
+        model=settings.stt_model,
+        gemini_api_key=settings.gemini_api_key if settings.app_env != "test" else None,
+        gemini_model=settings.gemini_stt_model,
+        base_url=settings.stt_openai_base_url,
+    )
     application.state.session_factory = sessionmaker(
         bind=application.state.engine,
         expire_on_commit=False,
@@ -362,6 +392,11 @@ def create_app() -> FastAPI:
     application.state.rag_service = build_rag_service(
         session_factory=application.state.session_factory,
         embedding_service=application.state.embedding_service,
+    )
+    application.state.analysis_service = build_analysis_service(
+        session_factory=application.state.session_factory,
+        rag_service=application.state.rag_service,
+        chat_model=analysis_chat_model,
     )
     application.state.export_service = build_export_service(
         session_factory=application.state.session_factory,
@@ -562,6 +597,60 @@ def create_app() -> FastAPI:
             bytes_received=len(audio_bytes),
             content_type=file.content_type,
         )
+
+    @application.post("/calls/{call_id}/analyze", status_code=status.HTTP_200_OK)
+    def analyze_call(
+        call_id: int,
+        request: Request,
+    ) -> CallDetailResponse:
+        try:
+            request.app.state.analysis_service.analyze(call_id=call_id)
+        except AnalysisOutputValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            ) from exc
+        except RuntimeError as exc:
+            error_message = str(exc)
+            if "CallSession not found" in error_message:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="CallSession not found.",
+                ) from exc
+            if (
+                error_message == TRANSCRIPT_TOO_SHORT_ERROR
+                or "No transcript segments found" in error_message
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=error_message,
+                ) from exc
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=error_message,
+            ) from exc
+
+        with request.app.state.session_factory() as session:
+            call_session = session.get(CallSession, call_id)
+            if call_session is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="CallSession not found.",
+                )
+
+            transcript_segments = _load_transcript_segments(
+                session=session,
+                call_id=call_id,
+            )
+            result_payload = _load_call_result(
+                session=session,
+                call_id=call_id,
+            )
+            return _build_call_detail_response(
+                call_session=call_session,
+                transcript_segments=transcript_segments,
+                result_payload=result_payload,
+            )
 
     @application.post("/calls/{call_id}/export", status_code=status.HTTP_200_OK)
     def export_call_result(

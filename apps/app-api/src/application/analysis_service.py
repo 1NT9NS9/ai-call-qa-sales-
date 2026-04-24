@@ -75,6 +75,13 @@ def load_analysis_schema_from_contracts(
 ) -> dict[str, Any]:
     active_resources_dir = resources_dir or _default_resources_dir()
     schema_manifest_path = active_resources_dir / "analysis_schema.json"
+    schema_manifest = json.loads(
+        schema_manifest_path.read_text(encoding="utf-8")
+    )
+    inline_schema = schema_manifest.get("schema")
+    if isinstance(inline_schema, dict):
+        return inline_schema
+
     schema_source = _load_schema_source(schema_manifest_path)
     contract_text = schema_source.contract_path.read_text(encoding="utf-8")
     schema_match = re.search(
@@ -161,9 +168,14 @@ class AnalysisService:
             raise RuntimeError(TRANSCRIPT_TOO_SHORT_ERROR)
         bound_model = self._bind_langchain_tools(self._chat_model)
         last_error: AnalysisOutputValidationError | None = None
+        rendered_prompt = self._render_analysis_prompt(payload)
+        model_input = self._resolve_model_input(
+            payload=payload,
+            rendered_prompt=rendered_prompt,
+        )
 
         for _attempt in range(2):
-            response = bound_model.invoke(payload)
+            response = bound_model.invoke(model_input)
             try:
                 validated_output = self._parse_and_validate_analysis_output(
                     response=response,
@@ -270,6 +282,20 @@ class AnalysisService:
             "context": self.build_prompt_context(call_id=call_id),
         }
 
+    @staticmethod
+    def _render_analysis_prompt(payload: dict[str, Any]) -> str:
+        return "\n\n".join(
+            [
+                str(payload["prompt"]).strip(),
+                "Rubric:",
+                str(payload["rubric"]).strip(),
+                "Target JSON schema:",
+                json.dumps(payload["schema"], ensure_ascii=True, indent=2),
+                "Context:",
+                json.dumps(payload["context"], ensure_ascii=True, indent=2),
+            ]
+        )
+
     def _bind_langchain_tools(self, chat_model: Any) -> Any:
         if not self._langchain_tools:
             raise RuntimeError("LangChain tools are not configured.")
@@ -281,6 +307,17 @@ class AnalysisService:
             raise RuntimeError("Configured analysis chat model does not support bind_tools.")
 
         return bind_tools(self._langchain_tools)
+
+    def _resolve_model_input(
+        self,
+        *,
+        payload: dict[str, Any],
+        rendered_prompt: str,
+    ) -> Any:
+        chat_model_module = self._chat_model.__class__.__module__
+        if chat_model_module.startswith("langchain_openai"):
+            return rendered_prompt
+        return payload
 
     def _finalize_valid_analysis(
         self,

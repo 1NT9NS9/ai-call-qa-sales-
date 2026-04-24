@@ -33,6 +33,14 @@ class Settings:
     app_port: int
     database_url: str
     storage_audio_dir: str
+    openai_api_key: str | None
+    model: str
+    stt_model: str
+    gemini_api_key: str | None
+    gemini_stt_model: str
+    reasoning_effort: str
+    openai_base_url: str | None
+    stt_openai_base_url: str | None
     webhook_target_url: str | None
 
 
@@ -79,6 +87,46 @@ def load_settings() -> Settings:
         app_port=int(resolved_values["APP_PORT"]),
         database_url=resolved_values["DATABASE_URL"],
         storage_audio_dir=resolved_values["STORAGE_AUDIO_DIR"],
+        openai_api_key=(
+            os.getenv("OPENAI_API_KEY")
+            or dotenv_values.get("OPENAI_API_KEY")
+            or None
+        ),
+        model=(
+            os.getenv("MODEL")
+            or dotenv_values.get("MODEL")
+            or "gpt-5.4-mini"
+        ),
+        stt_model=(
+            os.getenv("STT_MODEL")
+            or dotenv_values.get("STT_MODEL")
+            or "gpt-4o-mini-transcribe"
+        ),
+        gemini_api_key=(
+            os.getenv("GEMINI_API_KEY")
+            or dotenv_values.get("GEMINI_API_KEY")
+            or None
+        ),
+        gemini_stt_model=(
+            os.getenv("GEMINI_STT_MODEL")
+            or dotenv_values.get("GEMINI_STT_MODEL")
+            or "gemini-2.5-flash"
+        ),
+        reasoning_effort=(
+            os.getenv("REASONING_EFFORT")
+            or dotenv_values.get("REASONING_EFFORT")
+            or "low"
+        ),
+        openai_base_url=(
+            os.getenv("OPENAI_BASE_URL")
+            or dotenv_values.get("OPENAI_BASE_URL")
+            or None
+        ),
+        stt_openai_base_url=(
+            os.getenv("STT_OPENAI_BASE_URL")
+            or dotenv_values.get("STT_OPENAI_BASE_URL")
+            or None
+        ),
         webhook_target_url=(
             os.getenv("WEBHOOK_TARGET_URL")
             or dotenv_values.get("WEBHOOK_TARGET_URL")
